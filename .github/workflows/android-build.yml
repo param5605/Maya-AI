@@ -1,45 +1,43 @@
 name: Maya APK Builder
 
 on: [workflow_dispatch]
+
 jobs:
-build:
-runs-on: ubuntu-latest
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-steps:
-  - name: Checkout repository
-    uses: actions/checkout@v4
+      - name: Check Maya ZIP
+        run: test -f MayaAndroidProject.zip
 
-  - name: Check Maya ZIP
-    run: |
-      ls -la
-      test -f MayaAndroidProject.zip || { echo "MayaAndroidProject.zip is missing"; exit 1; }
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
 
-  - name: Set up Java
-    uses: actions/setup-java@v4
-    with:
-      distribution: temurin
-      java-version: '17'
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
 
-  - name: Set up Android SDK
-    uses: android-actions/setup-android@v3
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
 
-  - name: Set up Gradle
-    uses: gradle/actions/setup-gradle@v4
-    with:
-      gradle-version: '8.9'
+      - name: Extract project
+        run: unzip -o MayaAndroidProject.zip -d maya-source
 
-  - name: Extract project
-    run: unzip -o MayaAndroidProject.zip -d maya-source
+      - name: Build APK
+        run: |
+          PROJECT_DIR=$(find maya-source -name settings.gradle.kts -printf '%h\n' | head -1)
+          test -n "$PROJECT_DIR" || exit 1
+          gradle -p "$PROJECT_DIR" assembleDebug
 
-  - name: Build APK
-    run: |
-      PROJECT_DIR=$(find maya-source -name settings.gradle.kts -printf '%h\n' | head -1)
-      test -n "$PROJECT_DIR" || { echo "Android project not found"; exit 1; }
-      gradle -p "$PROJECT_DIR" assembleDebug
-
-  - name: Upload APK
-    uses: actions/upload-artifact@v4
-    with:
-      name: Maya-debug-APK
-      path: maya-source/**/app/build/outputs/apk/debug/*.apk
-      if-no-files-found: error
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Maya-debug-APK
+          path: maya-source/**/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
