@@ -50,18 +50,6 @@ jobs:
           mkdir -p maya-source
           unzip -o MayaAndroidProject.zip -d maya-source
 
-      # NEW: Try to auto-correct common code mistakes
-      - name: Patch Source Code
-        shell: bash
-        run: |
-          echo "Attempting to fix imports and syntax..."
-          # Fix bad imports if they exist
-          find maya-source -name "*.kt" -print0 | xargs -0 -r sed -i 's/import android.core./import androidx.core./g'
-          
-          # Fix missing ContextCompat imports
-          find maya-source -name "MainActivity.kt" -print0 | xargs -0 -r sed -i '1i import androidx.core.content.ContextCompat'
-          find maya-source -name "MainActivity.kt" -print0 | xargs -0 -r sed -i '1i import androidx.core.app.ActivityCompat'
-
       - name: Find Android project
         id: project
         shell: bash
@@ -76,14 +64,13 @@ jobs:
           done
           
           if [ -z "$PROJECT_DIR" ]; then
-             # Fallback: Assume root if settings file is missing but it's a flat structure
              PROJECT_DIR="maya-source"
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Android project found: $PROJECT_DIR"
 
-      # UPDATED: Injects missing libraries automatically
+      # FIXED: Only injects dependencies (Libraries), does not break code syntax
       - name: Create Override Script
         shell: bash
         run: |
@@ -92,13 +79,13 @@ jobs:
           
           allprojects {
               afterEvaluate { project ->
-                  // 1. Force Java 17
+                  // 1. Force Java 17 compatibility
                   project.tasks.withType(JavaCompile).configureEach {
                       sourceCompatibility = "17"
                       targetCompatibility = "17"
                   }
                   
-                  // 2. Force Android Settings to 17
+                  // 2. Force Android options to 17 and Inject Missing Libraries
                   def android = project.extensions.findByName("android")
                   if (android != null) {
                       android.compileOptions {
@@ -106,7 +93,7 @@ jobs:
                           targetCompatibility = JavaVersion.VERSION_17
                       }
                       
-                      // 3. INJECT MISSING DEPENDENCIES
+                      // Inject the missing libraries that caused "Unresolved reference"
                       project.dependencies {
                           add("implementation", "androidx.core:core-ktx:1.12.0")
                           add("implementation", "androidx.appcompat:appcompat:1.6.1")
