@@ -12,10 +12,9 @@ contents: read
 jobs:
 build:
 runs-on: ubuntu-latest
-
 steps:
-  - name: Download project
-    uses: actions/checkout@v4
+- name: Download project
+uses: actions/checkout@v4
 
   - name: Install Java
     uses: actions/setup-java@v4
@@ -34,7 +33,6 @@ steps:
   - name: Extract Maya project
     run: |
       unzip -o MayaAndroidProject.zip -d maya-source
-      find maya-source -name settings.gradle.kts
 
   - name: Build APK
     run: |
