@@ -12,37 +12,53 @@ permissions:
 jobs:
   build:
     name: Build Maya APK
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Maya project ZIP
+      - name: Check Maya ZIP
         shell: bash
         run: |
+          echo "Checking repository files..."
+          ls -la
+
           if [ ! -f "MayaAndroidProject.zip" ]; then
-            echo "ERROR: MayaAndroidProject.zip is missing."
+            echo "ERROR: MayaAndroidProject.zip is missing!"
             echo "Upload the Android project ZIP to the repository root."
             exit 1
           fi
+
+          echo "Maya project ZIP found."
 
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: |
-            platform-tools
-            platforms;android-35
-            build-tools;35.0.0
+
+      - name: Accept Android SDK licenses
+        shell: bash
+        run: |
+          yes | sdkmanager --licenses || true
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
 
       - name: Extract Maya project
         shell: bash
@@ -54,22 +70,43 @@ jobs:
         id: project
         shell: bash
         run: |
-          PROJECT_DIR="$(find maya-source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit | xargs -r dirname)"
+          PROJECT_DIR="$(find maya-source -name settings.gradle.kts -printf '%h\n' -quit)"
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Could not find settings.gradle or settings.gradle.kts."
-            echo "The ZIP may not contain a complete Android project."
-            find maya-source -maxdepth 4 -type f | head -100
+            PROJECT_DIR="$(find maya-source -name settings.gradle -printf '%h\n' -quit)"
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="$(find maya-source -name build.gradle.kts -printf '%h\n' -quit)"
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            PROJECT_DIR="$(find maya-source -name build.gradle -printf '%h\n' -quit)"
+          fi
+
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: No Gradle Android project was found."
+            echo "Check that the ZIP contains the Android project files."
+            find maya-source -maxdepth 4 -type f | head -200
             exit 1
           fi
 
-          echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Android project found at: $PROJECT_DIR"
+          echo "Found project at: $PROJECT_DIR"
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
       - name: Build Maya debug APK
         shell: bash
         run: |
-          gradle -p "${{ steps.project.outputs.dir }}" assembleDebug
+          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
+
+          cd "$PROJECT_DIR"
+
+          if [ -f "gradlew" ]; then
+            chmod +x gradlew
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
+          fi
 
       - name: Upload Maya APK
         uses: actions/upload-artifact@v4
