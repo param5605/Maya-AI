@@ -2,7 +2,6 @@ name: Maya APK Builder
 
 on:
   workflow_dispatch:
-
   push:
     branches:
       - main
@@ -19,7 +18,8 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Maya ZIP
+      - name: Check Maya project ZIP
+        shell: bash
         run: |
           if [ ! -f "MayaAndroidProject.zip" ]; then
             echo "ERROR: MayaAndroidProject.zip is missing."
@@ -33,36 +33,41 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Install Android SDK
+      - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install required Android SDK packages
-        run: |
-          sdkmanager --install "platform-tools" "platforms;android-35" "build-tools;35.0.0"
+        with:
+          packages: |
+            platform-tools
+            platforms;android-35
+            build-tools;35.0.0
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
 
       - name: Extract Maya project
+        shell: bash
         run: |
+          mkdir -p maya-source
           unzip -o MayaAndroidProject.zip -d maya-source
 
       - name: Find Android project
         id: project
         shell: bash
         run: |
-          PROJECT_DIR="$(find maya-source -name settings.gradle -o -name settings.gradle.kts | head -n 1 | xargs -r dirname)"
+          PROJECT_DIR="$(find maya-source -type f \( -name settings.gradle -o -name settings.gradle.kts \) -print -quit | xargs -r dirname)"
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found."
+            echo "ERROR: Could not find settings.gradle or settings.gradle.kts."
+            echo "The ZIP may not contain a complete Android project."
             find maya-source -maxdepth 4 -type f | head -100
             exit 1
           fi
 
           echo "dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Found project at: $PROJECT_DIR"
+          echo "Android project found at: $PROJECT_DIR"
 
-      - name: Build Maya APK
+      - name: Build Maya debug APK
+        shell: bash
         run: |
           gradle -p "${{ steps.project.outputs.dir }}" assembleDebug
 
@@ -72,3 +77,4 @@ jobs:
           name: Maya-debug-APK
           path: maya-source/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+          retention-days: 7
