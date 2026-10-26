@@ -1,8 +1,6 @@
 name: Maya APK Builder
 
-"on":
-workflow_dispatch:
-
+on: [workflow_dispatch]
 jobs:
 build:
 runs-on: ubuntu-latest
