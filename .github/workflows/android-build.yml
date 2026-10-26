@@ -22,97 +22,130 @@ jobs:
       - name: Check Maya project ZIP
         shell: bash
         run: |
-          if [ -f "MayaAndroidProject.zip" ]; then
+          set -e
+
+          if [ -f "MayaAndroidProject_FIXED.zip" ]; then
+            echo "MAYA_ZIP=MayaAndroidProject_FIXED.zip" >> "$GITHUB_ENV"
+          elif [ -f "MayaAndroidProject.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
           else
-            echo "ERROR: MayaAndroidProject.zip is missing."
+            echo "ERROR: No Maya project ZIP was found."
+            echo "Upload MayaAndroidProject_FIXED.zip or MayaAndroidProject.zip."
             exit 1
           fi
 
+          echo "Using project archive: $MAYA_ZIP"
+
       - name: Set up Java
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
-          distribution: "temurin"
+          distribution: temurin
           java-version: "17"
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-        with:
-          packages: "platform-tools platforms;android-35 build-tools;35.0.0 cmdline-tools;latest"
+
+      - name: Install Android SDK packages
+        shell: bash
+        run: |
+          set -e
+
+          yes | sdkmanager --licenses >/dev/null || true
+
+          sdkmanager \
+            "platform-tools" \
+            "platforms;android-35" \
+            "build-tools;35.0.0"
 
       - name: Extract Maya project
         shell: bash
         run: |
+          set -e
           mkdir -p maya-source
           unzip -o "$MAYA_ZIP" -d maya-source
+
+          echo "Extracted Maya project files."
 
       - name: Find Android project
         id: project
         shell: bash
         run: |
+          set -e
+
           PROJECT_DIR=""
+
           for FILE in settings.gradle.kts settings.gradle; do
-            PROJECT_DIR="$(find maya-source -type f -name "$FILE" -print -quit)"
-            if [ -n "$PROJECT_DIR" ]; then
-              PROJECT_DIR="$(dirname "$PROJECT_DIR")"
+            FOUND="$(find maya-source -type f -name "$FILE" -print -quit)"
+
+            if [ -n "$FOUND" ]; then
+              PROJECT_DIR="$(dirname "$FOUND")"
               break
             fi
           done
-          
-          if [ -z "$PROJECT_DIR" ]; then
-             PROJECT_DIR="maya-source"
-          fi
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
 
-      # SAFE FIX: Injects missing libraries and sets Java 17
-      - name: Create Override Script
+          if [ -z "$PROJECT_DIR" ]; then
+            echo "ERROR: No Android Gradle project was found."
+            echo "Check the contents of the uploaded ZIP file."
+            find maya-source -maxdepth 4 -type f | head -100
+            exit 1
+          fi
+
+          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project found: $PROJECT_DIR"
+
+      - name: Prepare Android project
         shell: bash
         run: |
-          cat <<EOF > init.gradle
-          import org.gradle.api.JavaVersion
-          allprojects {
-              afterEvaluate { project ->
-                  project.tasks.withType(JavaCompile).configureEach {
-                      sourceCompatibility = "17"
-                      targetCompatibility = "17"
-                  }
-                  def android = project.extensions.findByName("android")
-                  if (android != null) {
-                      android.compileOptions {
-                          sourceCompatibility = JavaVersion.VERSION_17
-                          targetCompatibility = JavaVersion.VERSION_17
-                      }
-                      project.dependencies {
-                          // Fixes 'Unresolved reference' errors
-                          add("implementation", "androidx.core:core-ktx:1.12.0")
-                          add("implementation", "androidx.appcompat:appcompat:1.6.1")
-                          add("implementation", "com.google.android.material:material:1.11.0")
-                      }
-                  }
-              }
-          }
-          EOF
+          set -e
+
+          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
+
+          if [ -f "$PROJECT_DIR/gradlew" ]; then
+            chmod +x "$PROJECT_DIR/gradlew"
+          fi
+
+          echo "Android project prepared."
 
       - name: Build Maya debug APK
         shell: bash
         run: |
-          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
-          mv init.gradle "$PROJECT_DIR/"
-          cd "$PROJECT_DIR"
-          
-          ARGS="--no-daemon --init-script init.gradle assembleDebug"
+          set -e
 
-          if [ -f "gradlew" ]; then
-            chmod +x gradlew
-            ./gradlew $ARGS
+          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
+          cd "$PROJECT_DIR"
+
+          if [ -f "./gradlew" ]; then
+            ./gradlew --no-daemon assembleDebug
           else
-            gradle $ARGS
+            echo "ERROR: Gradle wrapper is missing."
+            echo "The project ZIP should contain gradlew and its Gradle wrapper files."
+            exit 1
           fi
+
+      - name: Find generated APK
+        id: apk
+        shell: bash
+        run: |
+          set -e
+
+          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
+
+          APK_PATH="$(find "$PROJECT_DIR" -type f \
+            -path "*/build/outputs/apk/debug/*.apk" \
+            -print -quit)"
+
+          if [ -z "$APK_PATH" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
+          echo "APK generated successfully: $APK_PATH"
 
       - name: Upload Maya APK
         uses: actions/upload-artifact@v4
         with:
           name: Maya-debug-APK
-          path: maya-source/**/build/outputs/apk/debug/*.apk
+          path: ${{ steps.apk.outputs.apk_path }}
           if-no-files-found: error
           retention-days: 7
