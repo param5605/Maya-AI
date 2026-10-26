@@ -1,7 +1,7 @@
-name: Build Maya APK
+name: Maya APK Builder
 
 "on":
-  workflow_dispatch:
+workflow_dispatch:
 
 jobs:
 build:
@@ -10,6 +10,11 @@ runs-on: ubuntu-latest
 steps:
   - name: Checkout repository
     uses: actions/checkout@v4
+
+  - name: Check Maya ZIP
+    run: |
+      ls -la
+      test -f MayaAndroidProject.zip || { echo "MayaAndroidProject.zip is missing"; exit 1; }
 
   - name: Set up Java
     uses: actions/setup-java@v4
@@ -25,16 +30,13 @@ steps:
     with:
       gradle-version: '8.9'
 
-  - name: Extract Maya project
+  - name: Extract project
     run: unzip -o MayaAndroidProject.zip -d maya-source
 
   - name: Build APK
     run: |
       PROJECT_DIR=$(find maya-source -name settings.gradle.kts -printf '%h\n' | head -1)
-      if [ -z "$PROJECT_DIR" ]; then
-        echo "Android project files not found"
-        exit 1
-      fi
+      test -n "$PROJECT_DIR" || { echo "Android project not found"; exit 1; }
       gradle -p "$PROJECT_DIR" assembleDebug
 
   - name: Upload APK
