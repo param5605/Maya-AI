@@ -1,0 +1,49 @@
+name: Build Maya APK
+
+on:
+workflow_dispatch:
+push:
+branches:
+- main
+
+permissions:
+contents: read
+
+jobs:
+build:
+runs-on: ubuntu-latest
+
+steps:
+  - name: Download project
+    uses: actions/checkout@v4
+
+  - name: Install Java
+    uses: actions/setup-java@v4
+    with:
+      distribution: temurin
+      java-version: '17'
+
+  - name: Install Android SDK
+    uses: android-actions/setup-android@v3
+
+  - name: Install Gradle
+    uses: gradle/actions/setup-gradle@v4
+    with:
+      gradle-version: '8.9'
+
+  - name: Extract Maya project
+    run: |
+      unzip -o MayaAndroidProject.zip -d maya-source
+      find maya-source -name settings.gradle.kts
+
+  - name: Build APK
+    run: |
+      PROJECT_DIR=$(find maya-source -name settings.gradle.kts -printf '%h\n' | head -1)
+      gradle -p "$PROJECT_DIR" assembleDebug
+
+  - name: Upload Maya APK
+    uses: actions/upload-artifact@v4
+    with:
+      name: Maya-debug-APK
+      path: maya-source/**/app/build/outputs/apk/debug/*.apk
+      if-no-files-found: error
