@@ -50,22 +50,22 @@ jobs:
           mkdir -p maya-source
           unzip -o MayaAndroidProject.zip -d maya-source
 
-      # --- NEW FIX STEP START ---
+      # FIXED: Now looks for .kts files and doesn't crash if empty
       - name: Fix Java Version Mismatch
         shell: bash
         run: |
-          echo "Patching build.gradle to match Java 17 environment..."
-          # Find build.gradle files and replace version 1.8 with 17
-          find maya-source -name "build.gradle" -print0 | xargs -0 sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g'
-          # Also update Kotlin jvmTarget if it is explicitly set to 1.8
-          find maya-source -name "build.gradle" -print0 | xargs -0 sed -i "s/jvmTarget = ['\"]1.8['\"]/jvmTarget = '17'/g"
-      # --- NEW FIX STEP END ---
+          echo "Patching Gradle files to match Java 17..."
+          # Look for build.gradle AND build.gradle.kts
+          # Use xargs -r to avoid 'no input files' error
+          find maya-source -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -print0 | xargs -0 -r sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g'
+          find maya-source -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -print0 | xargs -0 -r sed -i "s/jvmTarget = ['\"]1.8['\"]/jvmTarget = '17'/g"
 
       - name: Find Android project
         id: project
         shell: bash
         run: |
           PROJECT_DIR=""
+          # Updated to check for .kts files first
           for FILE in settings.gradle.kts settings.gradle; do
             PROJECT_DIR="$(find maya-source -type f -name "$FILE" -print -quit)"
             if [ -n "$PROJECT_DIR" ]; then
@@ -76,8 +76,7 @@ jobs:
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "ERROR: No Gradle settings file found."
-            echo "The ZIP must contain a complete Android project."
-            find maya-source -maxdepth 4 -type f | head -100
+            ls -R maya-source
             exit 1
           fi
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
