@@ -71,41 +71,43 @@ jobs:
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Android project found: $PROJECT_DIR"
 
-      # --- NEW FORCE FIX START ---
+      # FIXED: Safer script that only targets Java (since Kotlin is already 17)
       - name: Create Override Script
         shell: bash
         run: |
           cat <<EOF > init.gradle
+          import org.gradle.api.JavaVersion
+          
           allprojects {
-              tasks.withType(org.jetbrains.kotlin.gradle.tasks.KotlinCompile).configureEach {
-                  kotlinOptions {
-                      jvmTarget = "17"
+              afterEvaluate { project ->
+                  // 1. Force standard Java tasks to 17
+                  project.tasks.withType(JavaCompile).configureEach {
+                      sourceCompatibility = "17"
+                      targetCompatibility = "17"
                   }
-              }
-              afterEvaluate {
-                  if (plugins.hasPlugin("com.android.application") || plugins.hasPlugin("com.android.library")) {
-                      android {
-                          compileOptions {
-                              sourceCompatibility = JavaVersion.VERSION_17
-                              targetCompatibility = JavaVersion.VERSION_17
-                          }
+                  
+                  // 2. Force Android Extension options to 17 (if present)
+                  def android = project.extensions.findByName("android")
+                  if (android != null) {
+                      android.compileOptions {
+                          sourceCompatibility = JavaVersion.VERSION_17
+                          targetCompatibility = JavaVersion.VERSION_17
                       }
                   }
               }
           }
           EOF
-      # --- NEW FORCE FIX END ---
 
       - name: Build Maya debug APK
         shell: bash
         run: |
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
-          # Move the init script to the project directory so Gradle finds it easily
+          # Move the init script to the project directory
           mv init.gradle "$PROJECT_DIR/"
           
           cd "$PROJECT_DIR"
           
-          # We add '--init-script init.gradle' to apply our overrides
+          # Apply the script using --init-script
           ARGS="--no-daemon --init-script init.gradle assembleDebug"
 
           if [ -f "gradlew" ]; then
