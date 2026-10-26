@@ -19,7 +19,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check Maya project ZIP
+      - name: Locate Maya project ZIP
         shell: bash
         run: |
           set -e
@@ -29,9 +29,12 @@ jobs:
           elif [ -f "MayaAndroidProject.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
           else
-            echo "ERROR: Maya project ZIP is missing."
+            echo "ERROR: Maya project ZIP not found."
+            echo "Upload MayaAndroidProject_FIXED.zip or MayaAndroidProject.zip."
             exit 1
           fi
+
+          echo "Maya project ZIP located."
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -47,9 +50,21 @@ jobs:
         run: |
           set -e
 
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
+          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
 
-          sdkmanager \
+          if [ ! -x "$SDKMANAGER" ]; then
+            SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" \
+              -type f -name sdkmanager -print -quit)"
+          fi
+
+          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
+            echo "ERROR: Android SDK manager was not found."
+            exit 1
+          fi
+
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+
+          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -58,8 +73,11 @@ jobs:
         shell: bash
         run: |
           set -e
+
           mkdir -p maya-source
           unzip -o "$MAYA_ZIP" -d maya-source
+
+          echo "Maya project extracted."
 
       - name: Find Android project
         id: project
@@ -70,7 +88,8 @@ jobs:
           PROJECT_DIR=""
 
           for FILE in settings.gradle.kts settings.gradle; do
-            FOUND="$(find maya-source -type f -name "$FILE" -print -quit)"
+            FOUND="$(find maya-source -type f \
+              -name "$FILE" -print -quit)"
 
             if [ -n "$FOUND" ]; then
               PROJECT_DIR="$(dirname "$FOUND")"
@@ -80,20 +99,22 @@ jobs:
 
           if [ -z "$PROJECT_DIR" ]; then
             echo "ERROR: Android Gradle project not found."
-            find maya-source -maxdepth 4 -type f | head -100
+            find maya-source -maxdepth 5 -type f | head -100
             exit 1
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project: $PROJECT_DIR"
 
-      - name: Prepare Android project
+      - name: Check Gradle wrapper
         shell: bash
         run: |
           set -e
+
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
 
           if [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: Gradle wrapper is missing."
+            echo "ERROR: gradlew is missing from the project ZIP."
             exit 1
           fi
 
@@ -103,6 +124,7 @@ jobs:
         shell: bash
         run: |
           set -e
+
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
           cd "$PROJECT_DIR"
 
