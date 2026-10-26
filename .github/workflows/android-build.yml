@@ -34,7 +34,6 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      # FIXED: Added configurations explicitly to setup-android action
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
@@ -50,6 +49,17 @@ jobs:
         run: |
           mkdir -p maya-source
           unzip -o MayaAndroidProject.zip -d maya-source
+
+      # --- NEW FIX STEP START ---
+      - name: Fix Java Version Mismatch
+        shell: bash
+        run: |
+          echo "Patching build.gradle to match Java 17 environment..."
+          # Find build.gradle files and replace version 1.8 with 17
+          find maya-source -name "build.gradle" -print0 | xargs -0 sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g'
+          # Also update Kotlin jvmTarget if it is explicitly set to 1.8
+          find maya-source -name "build.gradle" -print0 | xargs -0 sed -i "s/jvmTarget = ['\"]1.8['\"]/jvmTarget = '17'/g"
+      # --- NEW FIX STEP END ---
 
       - name: Find Android project
         id: project
