@@ -50,22 +50,11 @@ jobs:
           mkdir -p maya-source
           unzip -o MayaAndroidProject.zip -d maya-source
 
-      # FIXED: Now looks for .kts files and doesn't crash if empty
-      - name: Fix Java Version Mismatch
-        shell: bash
-        run: |
-          echo "Patching Gradle files to match Java 17..."
-          # Look for build.gradle AND build.gradle.kts
-          # Use xargs -r to avoid 'no input files' error
-          find maya-source -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -print0 | xargs -0 -r sed -i 's/JavaVersion.VERSION_1_8/JavaVersion.VERSION_17/g'
-          find maya-source -type f \( -name "build.gradle" -o -name "build.gradle.kts" \) -print0 | xargs -0 -r sed -i "s/jvmTarget = ['\"]1.8['\"]/jvmTarget = '17'/g"
-
       - name: Find Android project
         id: project
         shell: bash
         run: |
           PROJECT_DIR=""
-          # Updated to check for .kts files first
           for FILE in settings.gradle.kts settings.gradle; do
             PROJECT_DIR="$(find maya-source -type f -name "$FILE" -print -quit)"
             if [ -n "$PROJECT_DIR" ]; then
@@ -82,16 +71,25 @@ jobs:
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Android project found: $PROJECT_DIR"
 
+      # FIXED: Using command line flags to force Java 17 compatibility
       - name: Build Maya debug APK
         shell: bash
         run: |
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
           cd "$PROJECT_DIR"
+          
+          # We use -P flags to override project properties
+          ARGS="--no-daemon assembleDebug \
+            -Dorg.gradle.jvmargs=-Xmx2048m \
+            -Pandroid.compileOptions.sourceCompatibility=17 \
+            -Pandroid.compileOptions.targetCompatibility=17 \
+            -Pkotlin.jvm.target=17"
+
           if [ -f "gradlew" ]; then
             chmod +x gradlew
-            ./gradlew --no-daemon assembleDebug
+            ./gradlew $ARGS
           else
-            gradle --no-daemon assembleDebug
+            gradle $ARGS
           fi
 
       - name: Upload Maya APK
