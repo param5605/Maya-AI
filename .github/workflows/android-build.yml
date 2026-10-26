@@ -29,12 +29,9 @@ jobs:
           elif [ -f "MayaAndroidProject.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
           else
-            echo "ERROR: No Maya project ZIP was found."
-            echo "Upload MayaAndroidProject_FIXED.zip or MayaAndroidProject.zip."
+            echo "ERROR: Maya project ZIP is missing."
             exit 1
           fi
-
-          echo "Using project archive: $MAYA_ZIP"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -50,7 +47,7 @@ jobs:
         run: |
           set -e
 
-          yes | sdkmanager --licenses >/dev/null || true
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
           sdkmanager \
             "platform-tools" \
@@ -63,8 +60,6 @@ jobs:
           set -e
           mkdir -p maya-source
           unzip -o "$MAYA_ZIP" -d maya-source
-
-          echo "Extracted Maya project files."
 
       - name: Find Android project
         id: project
@@ -84,68 +79,39 @@ jobs:
           done
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: No Android Gradle project was found."
-            echo "Check the contents of the uploaded ZIP file."
+            echo "ERROR: Android Gradle project not found."
             find maya-source -maxdepth 4 -type f | head -100
             exit 1
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Android project found: $PROJECT_DIR"
 
       - name: Prepare Android project
         shell: bash
         run: |
           set -e
-
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
 
-          if [ -f "$PROJECT_DIR/gradlew" ]; then
-            chmod +x "$PROJECT_DIR/gradlew"
+          if [ ! -f "$PROJECT_DIR/gradlew" ]; then
+            echo "ERROR: Gradle wrapper is missing."
+            exit 1
           fi
 
-          echo "Android project prepared."
+          chmod +x "$PROJECT_DIR/gradlew"
 
       - name: Build Maya debug APK
         shell: bash
         run: |
           set -e
-
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
           cd "$PROJECT_DIR"
 
-          if [ -f "./gradlew" ]; then
-            ./gradlew --no-daemon assembleDebug
-          else
-            echo "ERROR: Gradle wrapper is missing."
-            echo "The project ZIP should contain gradlew and its Gradle wrapper files."
-            exit 1
-          fi
-
-      - name: Find generated APK
-        id: apk
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
-
-          APK_PATH="$(find "$PROJECT_DIR" -type f \
-            -path "*/build/outputs/apk/debug/*.apk" \
-            -print -quit)"
-
-          if [ -z "$APK_PATH" ]; then
-            echo "ERROR: APK was not generated."
-            exit 1
-          fi
-
-          echo "apk_path=$APK_PATH" >> "$GITHUB_OUTPUT"
-          echo "APK generated successfully: $APK_PATH"
+          ./gradlew --no-daemon assembleDebug
 
       - name: Upload Maya APK
         uses: actions/upload-artifact@v4
         with:
           name: Maya-debug-APK
-          path: ${{ steps.apk.outputs.apk_path }}
+          path: maya-source/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
