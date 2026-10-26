@@ -31,21 +31,14 @@ jobs:
       - name: Set up Java
         uses: actions/setup-java@v5
         with:
-          distribution: temurin
+          distribution: "temurin"
           java-version: "17"
 
+      # FIXED: Added configurations explicitly to setup-android action
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
-
-      - name: Install Android SDK packages
-        shell: bash
-        run: |
-          set -e
-          sdkmanager --sdk_root="$ANDROID_HOME" --licenses < /dev/null || true
-          sdkmanager --sdk_root="$ANDROID_HOME" \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+        with:
+          packages: "platform-tools platforms;android-35 build-tools;35.0.0"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
@@ -63,7 +56,6 @@ jobs:
         shell: bash
         run: |
           PROJECT_DIR=""
-
           for FILE in settings.gradle.kts settings.gradle; do
             PROJECT_DIR="$(find maya-source -type f -name "$FILE" -print -quit)"
             if [ -n "$PROJECT_DIR" ]; then
@@ -78,7 +70,6 @@ jobs:
             find maya-source -maxdepth 4 -type f | head -100
             exit 1
           fi
-
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
           echo "Android project found: $PROJECT_DIR"
 
@@ -87,7 +78,6 @@ jobs:
         run: |
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
           cd "$PROJECT_DIR"
-
           if [ -f "gradlew" ]; then
             chmod +x gradlew
             ./gradlew --no-daemon assembleDebug
@@ -99,6 +89,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: Maya-debug-APK
-          path: maya-source/**/build/outputs/apk/debug/*.apk
+          path: |
+            maya-source/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 7
