@@ -31,18 +31,17 @@ jobs:
           elif [ -f "MayaAndroidProject.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
           else
-            echo "ERROR: No Maya project ZIP found in the repository root."
+            echo "ERROR: Maya project ZIP not found."
             exit 1
           fi
 
-          echo "Selected project: $MAYA_ZIP"
+          echo "Selected ZIP: $MAYA_ZIP"
 
       - name: Set up Java 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
-          cache: gradle
 
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
@@ -55,25 +54,39 @@ jobs:
         run: |
           mkdir -p maya-project
           unzip -q "$MAYA_ZIP" -d maya-project
-          echo "Project files:"
-          find maya-project -maxdepth 4 -type f | sort | head -100
+          echo "Extracted project files:"
+          find maya-project -maxdepth 5 -type f | sort | head -100
 
       - name: Locate Gradle project
         shell: bash
         run: |
-          PROJECT_DIR="$(find maya-project -name settings.gradle.kts -type f -print -quit | xargs dirname)"
+          SETTINGS_FILE="$(find maya-project -name settings.gradle.kts -type f -print -quit)"
 
-          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: Could not find settings.gradle.kts and gradlew together."
-            echo "The ZIP must contain the Gradle wrapper."
+          if [ -z "$SETTINGS_FILE" ]; then
+            echo "ERROR: settings.gradle.kts was not found."
             exit 1
           fi
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Found project at: $PROJECT_DIR"
+          PROJECT_DIR="$(dirname "$SETTINGS_FILE")"
 
-      - name: Make Gradle wrapper executable
-        run: chmod +x "$PROJECT_DIR/gradlew"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Project directory: $PROJECT_DIR"
+
+      - name: Prepare Gradle wrapper
+        shell: bash
+        run: |
+          cd "$PROJECT_DIR"
+
+          if [ ! -f "gradlew" ]; then
+            echo "Gradle wrapper is missing. Installing Gradle to generate it."
+
+            sudo apt-get update
+            sudo apt-get install -y gradle
+
+            gradle wrapper --gradle-version 8.9
+          fi
+
+          chmod +x gradlew
 
       - name: Build debug APK
         run: |
