@@ -3,8 +3,9 @@ name: Maya APK Builder
 on:
   workflow_dispatch:
   push:
-    branches:
-      - main
+    paths:
+      - "*.zip"
+      - ".github/workflows/android-build.yml"
 
 permissions:
   contents: read
@@ -12,129 +13,76 @@ permissions:
 jobs:
   build:
     name: Build Maya APK
-    runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Locate Maya project ZIP
+      - name: Select Maya project ZIP
         shell: bash
         run: |
-          set -e
-
-          if [ -f "MayaAndroidProject_JVM17_FIXED.zip" ]; then
+          if [ -f "MayaAndroidProject_CORE_JVM17_FIXED.zip" ]; then
+            echo "MAYA_ZIP=MayaAndroidProject_CORE_JVM17_FIXED.zip" >> "$GITHUB_ENV"
+          elif [ -f "MayaAndroidProject_JVM17_FIXED.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject_JVM17_FIXED.zip" >> "$GITHUB_ENV"
           elif [ -f "MayaAndroidProject_FIXED.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject_FIXED.zip" >> "$GITHUB_ENV"
           elif [ -f "MayaAndroidProject.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
           else
-            echo "ERROR: Maya project ZIP not found."
+            echo "ERROR: No Maya project ZIP found in the repository root."
             exit 1
           fi
 
-      - name: Set up Java
+          echo "Selected project: $MAYA_ZIP"
+
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: "17"
+          cache: gradle
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
-        shell: bash
         run: |
-          set -e
-
-          yes | sdkmanager --licenses >/dev/null 2>&1 || true
-
-          sdkmanager \
-            "platform-tools" \
-            "platforms;android-35" \
-            "build-tools;35.0.0"
+          sdkmanager "platform-tools" "platforms;android-35" "build-tools;35.0.0"
 
       - name: Extract Maya project
+        run: |
+          mkdir -p maya-project
+          unzip -q "$MAYA_ZIP" -d maya-project
+          echo "Project files:"
+          find maya-project -maxdepth 4 -type f | sort | head -100
+
+      - name: Locate Gradle project
         shell: bash
         run: |
-          set -e
+          PROJECT_DIR="$(find maya-project -name settings.gradle.kts -type f -print -quit | xargs dirname)"
 
-          mkdir -p maya-source
-          unzip -o "$MAYA_ZIP" -d maya-source
-
-      - name: Find Android project
-        id: project
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT_DIR=""
-
-          for FILE in settings.gradle.kts settings.gradle; do
-            FOUND="$(find maya-source -type f \
-              -name "$FILE" -print -quit)"
-
-            if [ -n "$FOUND" ]; then
-              PROJECT_DIR="$(dirname "$FOUND")"
-              break
-            fi
-          done
-
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android Gradle project not found."
-            find maya-source -maxdepth 5 -type f | head -100
+          if [ -z "$PROJECT_DIR" ] || [ ! -f "$PROJECT_DIR/gradlew" ]; then
+            echo "ERROR: Could not find settings.gradle.kts and gradlew together."
+            echo "The ZIP must contain the Gradle wrapper."
             exit 1
           fi
 
-          echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Android project: $PROJECT_DIR"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+          echo "Found project at: $PROJECT_DIR"
 
-      - name: Prepare Gradle
-        shell: bash
+      - name: Make Gradle wrapper executable
+        run: chmod +x "$PROJECT_DIR/gradlew"
+
+      - name: Build debug APK
         run: |
-          set -e
-
-          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
-
-          if [ -f "$PROJECT_DIR/gradlew" ]; then
-            chmod +x "$PROJECT_DIR/gradlew"
-            echo "GRADLE_COMMAND=wrapper" >> "$GITHUB_ENV"
-          else
-            echo "Gradle wrapper missing. Installing Gradle 8.9."
-
-            curl -fL \
-              https://services.gradle.org/distributions/gradle-8.9-bin.zip \
-              -o "$RUNNER_TEMP/gradle.zip"
-
-            mkdir -p "$RUNNER_TEMP/gradle"
-
-            unzip -q "$RUNNER_TEMP/gradle.zip" \
-              -d "$RUNNER_TEMP/gradle"
-
-            echo "$RUNNER_TEMP/gradle/gradle-8.9/bin" >> "$GITHUB_PATH"
-            echo "GRADLE_COMMAND=system" >> "$GITHUB_ENV"
-          fi
-
-      - name: Build Maya debug APK
-        shell: bash
-        run: |
-          set -e
-
-          PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
           cd "$PROJECT_DIR"
-
-          if [ "$GRADLE_COMMAND" = "wrapper" ]; then
-            ./gradlew --no-daemon assembleDebug
-          else
-            gradle --no-daemon assembleDebug
-          fi
+          ./gradlew --no-daemon assembleDebug
 
       - name: Upload Maya APK
         uses: actions/upload-artifact@v4
         with:
-          name: Maya-debug-APK
-          path: maya-source/**/build/outputs/apk/debug/*.apk
+          name: Maya-APK
+          path: maya-project/**/build/outputs/apk/debug/*.apk
           if-no-files-found: error
-          retention-days: 7
