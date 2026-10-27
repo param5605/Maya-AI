@@ -13,7 +13,11 @@ jobs:
   build:
     name: Build Maya APK
     runs-on: ubuntu-24.04
-    timeout-minutes: 40
+    timeout-minutes: 45
+
+    env:
+      ANDROID_HOME: /usr/local/lib/android/sdk
+      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
 
     steps:
       - name: Checkout repository
@@ -30,11 +34,8 @@ jobs:
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
           else
             echo "ERROR: Maya project ZIP not found."
-            echo "Upload MayaAndroidProject_FIXED.zip or MayaAndroidProject.zip."
             exit 1
           fi
-
-          echo "Maya project ZIP located."
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -43,26 +44,48 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        shell: bash
+        run: |
+          set -e
+
+          SDK_DIR="$ANDROID_HOME"
+          mkdir -p "$SDK_DIR/cmdline-tools"
+
+          if ! find "$SDK_DIR/cmdline-tools" -type f \
+            -name sdkmanager -print -quit | grep -q .; then
+
+            mkdir -p "$RUNNER_TEMP/android-tools"
+
+            curl -fL \
+              https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip \
+              -o "$RUNNER_TEMP/android-tools.zip"
+
+            unzip -q "$RUNNER_TEMP/android-tools.zip" \
+              -d "$RUNNER_TEMP/android-tools"
+
+            mkdir -p "$SDK_DIR/cmdline-tools/latest"
+
+            cp -a "$RUNNER_TEMP/android-tools/cmdline-tools/." \
+              "$SDK_DIR/cmdline-tools/latest/"
+          fi
+
+          if [ ! -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
+            echo "ERROR: Android SDK manager was not installed."
+            exit 1
+          fi
+
+          echo "$SDK_DIR/platform-tools" >> "$GITHUB_PATH"
+          echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
 
       - name: Install Android SDK packages
         shell: bash
         run: |
           set -e
 
-          SDKMANAGER="${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager"
+          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
 
-          if [ ! -x "$SDKMANAGER" ]; then
-            SDKMANAGER="$(find "${ANDROID_HOME}/cmdline-tools" \
-              -type f -name sdkmanager -print -quit)"
-          fi
-
-          if [ -z "$SDKMANAGER" ] || [ ! -x "$SDKMANAGER" ]; then
-            echo "ERROR: Android SDK manager was not found."
-            exit 1
-          fi
-
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses || true
+          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses \
+            >/dev/null 2>&1 || true
 
           "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
             "platform-tools" \
@@ -73,11 +96,8 @@ jobs:
         shell: bash
         run: |
           set -e
-
           mkdir -p maya-source
           unzip -o "$MAYA_ZIP" -d maya-source
-
-          echo "Maya project extracted."
 
       - name: Find Android project
         id: project
@@ -104,7 +124,6 @@ jobs:
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
-          echo "Android project: $PROJECT_DIR"
 
       - name: Check Gradle wrapper
         shell: bash
@@ -114,7 +133,7 @@ jobs:
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
 
           if [ ! -f "$PROJECT_DIR/gradlew" ]; then
-            echo "ERROR: gradlew is missing from the project ZIP."
+            echo "ERROR: Gradle wrapper is missing."
             exit 1
           fi
 
