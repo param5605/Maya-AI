@@ -15,10 +15,6 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 45
 
-    env:
-      ANDROID_HOME: /usr/local/lib/android/sdk
-      ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -28,7 +24,9 @@ jobs:
         run: |
           set -e
 
-          if [ -f "MayaAndroidProject_FIXED.zip" ]; then
+          if [ -f "MayaAndroidProject_JVM17_FIXED.zip" ]; then
+            echo "MAYA_ZIP=MayaAndroidProject_JVM17_FIXED.zip" >> "$GITHUB_ENV"
+          elif [ -f "MayaAndroidProject_FIXED.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject_FIXED.zip" >> "$GITHUB_ENV"
           elif [ -f "MayaAndroidProject.zip" ]; then
             echo "MAYA_ZIP=MayaAndroidProject.zip" >> "$GITHUB_ENV"
@@ -44,41 +42,16 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        shell: bash
-        run: |
-          set -e
-
-          SDK_DIR="$ANDROID_HOME"
-          mkdir -p "$SDK_DIR/cmdline-tools/latest"
-
-          if [ ! -x "$SDK_DIR/cmdline-tools/latest/bin/sdkmanager" ]; then
-            mkdir -p "$RUNNER_TEMP/android-tools"
-
-            curl -fL \
-              https://dl.google.com/android/repository/commandlinetools-linux-12266719_latest.zip \
-              -o "$RUNNER_TEMP/android-tools.zip"
-
-            unzip -q "$RUNNER_TEMP/android-tools.zip" \
-              -d "$RUNNER_TEMP/android-tools"
-
-            cp -a "$RUNNER_TEMP/android-tools/cmdline-tools/." \
-              "$SDK_DIR/cmdline-tools/latest/"
-          fi
-
-          echo "$SDK_DIR/platform-tools" >> "$GITHUB_PATH"
-          echo "$SDK_DIR/cmdline-tools/latest/bin" >> "$GITHUB_PATH"
+        uses: android-actions/setup-android@v4
 
       - name: Install Android SDK packages
         shell: bash
         run: |
           set -e
 
-          SDKMANAGER="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | sdkmanager --licenses >/dev/null 2>&1 || true
 
-          yes | "$SDKMANAGER" --sdk_root="$ANDROID_HOME" --licenses \
-            >/dev/null 2>&1 || true
-
-          "$SDKMANAGER" --sdk_root="$ANDROID_HOME" \
+          sdkmanager \
             "platform-tools" \
             "platforms;android-35" \
             "build-tools;35.0.0"
@@ -87,6 +60,7 @@ jobs:
         shell: bash
         run: |
           set -e
+
           mkdir -p maya-source
           unzip -o "$MAYA_ZIP" -d maya-source
 
@@ -109,12 +83,13 @@ jobs:
           done
 
           if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: No Gradle settings file found."
+            echo "ERROR: Android Gradle project not found."
             find maya-source -maxdepth 5 -type f | head -100
             exit 1
           fi
 
           echo "project_dir=$PROJECT_DIR" >> "$GITHUB_OUTPUT"
+          echo "Android project: $PROJECT_DIR"
 
       - name: Prepare Gradle
         shell: bash
@@ -125,19 +100,21 @@ jobs:
 
           if [ -f "$PROJECT_DIR/gradlew" ]; then
             chmod +x "$PROJECT_DIR/gradlew"
-            echo "GRADLE_COMMAND=./gradlew" >> "$GITHUB_ENV"
+            echo "GRADLE_COMMAND=wrapper" >> "$GITHUB_ENV"
           else
-            echo "Gradle wrapper missing; installing Gradle 8.9."
+            echo "Gradle wrapper missing. Installing Gradle 8.9."
+
             curl -fL \
               https://services.gradle.org/distributions/gradle-8.9-bin.zip \
               -o "$RUNNER_TEMP/gradle.zip"
 
             mkdir -p "$RUNNER_TEMP/gradle"
+
             unzip -q "$RUNNER_TEMP/gradle.zip" \
               -d "$RUNNER_TEMP/gradle"
 
             echo "$RUNNER_TEMP/gradle/gradle-8.9/bin" >> "$GITHUB_PATH"
-            echo "GRADLE_COMMAND=gradle" >> "$GITHUB_ENV"
+            echo "GRADLE_COMMAND=system" >> "$GITHUB_ENV"
           fi
 
       - name: Build Maya debug APK
@@ -148,7 +125,7 @@ jobs:
           PROJECT_DIR="${{ steps.project.outputs.project_dir }}"
           cd "$PROJECT_DIR"
 
-          if [ "$GRADLE_COMMAND" = "./gradlew" ]; then
+          if [ "$GRADLE_COMMAND" = "wrapper" ]; then
             ./gradlew --no-daemon assembleDebug
           else
             gradle --no-daemon assembleDebug
